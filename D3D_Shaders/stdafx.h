@@ -4,7 +4,7 @@
 //
 
 #pragma once
-
+//#define _HAS_STD_BYTE = 0
 #include "targetver.h"
 
 #include <stdio.h>
@@ -14,6 +14,7 @@
 #include <string>
 #include <vector>
 #include <unordered_map>
+//#include <rpcndr.h>
 
 using namespace std;
 

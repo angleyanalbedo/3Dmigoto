@@ -9,6 +9,9 @@
 #include <d3d11_1.h>
 #include <dxgi1_2.h>
 
+#include <vcruntime_exception.h>
+#include <vcruntime_typeinfo.h>
+
 #include <D3Dcompiler.h>
 #include <d3d9.h>
 #include <DirectXMath.h>
@@ -403,7 +406,7 @@ static T2 parse_enum_option_string_prefix(struct EnumName_t<T1, T2> *enum_names,
 
 #if MIGOTO_DX == 11
 // http://msdn.microsoft.com/en-us/library/windows/desktop/bb173059(v=vs.85).aspx
-static char *DXGIFormats[] = {
+static const char *DXGIFormats[] = {
 	"UNKNOWN",
 	"R32G32B32A32_TYPELESS",
 	"R32G32B32A32_FLOAT",
@@ -522,7 +525,7 @@ static char *DXGIFormats[] = {
 	"B4G4R4A4_UNORM"
 };
 
-static char *TexFormatStr(unsigned int format)
+static const char *TexFormatStr(unsigned int format)
 {
 	if (format < sizeof(DXGIFormats) / sizeof(DXGIFormats[0]))
 		return DXGIFormats[format];

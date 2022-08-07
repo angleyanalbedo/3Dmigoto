@@ -52,7 +52,7 @@ static HCURSOR InvisibleCursor()
 	static HCURSOR cursor = NULL;
 	int width, height;
 	unsigned pitch, size;
-	char *and, *xor;
+	char* X_or, * A_nd;
 
 	if (!cursor) {
 		width = GetSystemMetrics(SM_CXCURSOR);
@@ -60,16 +60,16 @@ static HCURSOR InvisibleCursor()
 		pitch = ((width + 31) / 32) * 4;
 		size = pitch * height;
 
-		and = new char[size];
-		xor = new char[size];
+		A_nd = new char[size];
+		X_or = new char[size];
 
-		memset(and, 0xff, size);
-		memset(xor, 0x00, size);
+		memset(A_nd, 0xff, size);
+		memset(X_or, 0x00, size);
 
-		cursor = CreateCursor(GetModuleHandle(NULL), 0, 0, width, height, and, xor);
+		cursor = CreateCursor(GetModuleHandle(NULL), 0, 0, width, height, A_nd, X_or);
 
-		delete[] and;
-		delete[] xor;
+		delete[] A_nd;
+		delete[] X_or;
 	}
 
 	return cursor;
