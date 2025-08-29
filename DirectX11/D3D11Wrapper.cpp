@@ -46,6 +46,45 @@ bool gLogDebug = false;
 // CreateXXX call.
 CRITICAL_SECTION resource_creation_mode_lock;
 
+// This function checks if 3DMigoto is running in the intended executable - it
+// is similar to verify_intended_target() that we use in DllMain to bail out of
+// unwanted executables when using the 3DMigoto loader, and uses the same
+// [Loader]target ini setting (because adding a second setting would be
+// confusing). But in this case we could be loaded from the game directory so
+// we can't simply unload outselves and still need to pass d3d11.dll exported
+// functions through to the original. We just will skip wrapping/hooking the
+// device/context or intercepting the swap chain.
+static bool verify_intended_target_late()
+{
+	wchar_t exe_path[MAX_PATH];
+	wchar_t target[MAX_PATH];
+	size_t target_len, exe_len;
+
+	if (!GetIniBool(L"Loader", L"check_target_even_without_loader", false, NULL))
+		return true;
+
+	if (GetIniString(L"Loader", L"Target", NULL, target, MAX_PATH) == 0)
+		return true;
+
+	if (!GetModuleFileName(NULL, exe_path, MAX_PATH))
+		return false;
+
+	// If we are loading into an application with a generic name like
+	// "game.exe" we may want to check part of the directory structure as well,
+	// so we will do the comparison using the end of the full executable path.
+	target_len = wcslen(target);
+	exe_len = wcslen(exe_path);
+	if (exe_len < target_len)
+		return false;
+
+	// Unless we are matching a full path we do expect the match be immediately
+	// following a directory separator, even if this was not explicitly stated
+	// in the target string:
+	if (target[0] != L'\\' && exe_len > target_len && exe_path[exe_len - target_len - 1] != L'\\')
+		return false;
+
+	return !_wcsicmp(exe_path + exe_len - target_len, target);
+}
 
 // During the initialize, we will also Log every setting that is enabled, so that the log
 // has a complete list of active settings.  This should make it more accurate and clear.
@@ -57,6 +96,12 @@ static bool InitializeDLL()
 
 	LoadConfigFile();
 
+
+	G->bIntendedTargetExe = verify_intended_target_late();
+	if (!G->bIntendedTargetExe) {
+		LogInfo("Executable does not match [Loader]Target setting, disabling core functionality\n");
+		return false;
+	}
 
 	// Preload OUR nvapi before we call init because we need some of our calls.
 #if(_WIN64)
@@ -490,6 +535,24 @@ void InitD311()
 #endif
 }
 
+HRESULT WINAPI D3D11On12CreateDevice(
+	_In_ IUnknown* pDevice,
+	UINT Flags,
+	_In_reads_opt_(FeatureLevels) CONST D3D_FEATURE_LEVEL* pFeatureLevels,
+	UINT FeatureLevels,
+	_In_reads_opt_(NumQueues) IUnknown* CONST* ppCommandQueues,
+	UINT NumQueues,
+	UINT NodeMask,
+	_COM_Outptr_opt_ ID3D11Device** ppDevice,
+	_COM_Outptr_opt_ ID3D11DeviceContext** ppImmediateContext,
+	_Out_opt_ D3D_FEATURE_LEVEL* pChosenFeatureLevel)
+{
+	InitD311();
+	LogInfo("D3D11On12CreateDevice called.\n");
+
+	return (*_D3D11On12CreateDevice)(pDevice, Flags, pFeatureLevels, FeatureLevels, ppCommandQueues, NumQueues, NodeMask, ppDevice, ppImmediateContext, pChosenFeatureLevel);
+}
+
 int WINAPI D3DKMTQueryAdapterInfo(_D3DKMT_QUERYADAPTERINFO *info)
 {
 	InitD311();
@@ -829,7 +892,11 @@ HRESULT WINAPI D3D11CreateDevice(
 {
 	if (get_tls()->hooking_quirk_protection) {
 		LogInfo("Hooking Quirk: Unexpected call back into D3D11CreateDevice, passing through\n");
-		// No confirmed cases
+		// Known case: Present() may call D3D11CreateDevice in Optimus laptops,
+		//             triggering this if we have hooked that call, as we do
+		//             when we have been injected from outside the game
+		//             directory. Cause of crash in DOA6:
+		//             https://github.com/bo3b/3Dmigoto/issues/106
 		return _D3D11CreateDevice(pAdapter, DriverType, Software,
 				Flags, pFeatureLevels, FeatureLevels,
 				SDKVersion, ppDevice, pFeatureLevel,
@@ -846,6 +913,14 @@ HRESULT WINAPI D3D11CreateDevice(
 	LogInfo("    ppDevice = %p\n", ppDevice);
 	LogInfo("    pFeatureLevel = %#x\n", pFeatureLevel ? *pFeatureLevel : 0);
 	LogInfo("    ppImmediateContext = %p\n", ppImmediateContext);
+
+	if (!G->bIntendedTargetExe) {
+		LogInfo("   Not intended target exe, passing through to real DX\n");
+		return _D3D11CreateDevice(pAdapter, DriverType, Software,
+			Flags, pFeatureLevels, FeatureLevels,
+			SDKVersion, ppDevice, pFeatureLevel,
+			ppImmediateContext);
+	}
 
 	if (ForceDX11(const_cast<D3D_FEATURE_LEVEL*>(pFeatureLevels)))
 		return E_INVALIDARG;
@@ -962,6 +1037,14 @@ HRESULT WINAPI D3D11CreateDeviceAndSwapChain(
 	LogInfo("    ppDevice = %p\n", ppDevice);
 	LogInfo("    pFeatureLevel = %#x\n", pFeatureLevel ? *pFeatureLevel: 0);
 	LogInfo("    ppImmediateContext = %p\n", ppImmediateContext);
+
+	if (!G->bIntendedTargetExe) {
+		LogInfo("   Not intended target exe, passing through to real DX\n");
+		return _D3D11CreateDeviceAndSwapChain(pAdapter, DriverType,
+			Software, Flags, pFeatureLevels, FeatureLevels,
+			SDKVersion, pSwapChainDesc, ppSwapChain,
+			ppDevice, pFeatureLevel, ppImmediateContext);
+	}
 
 	if (ForceDX11(const_cast<D3D_FEATURE_LEVEL*>(pFeatureLevels)))
 		return E_INVALIDARG;
